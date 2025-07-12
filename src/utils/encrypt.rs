@@ -34,6 +34,6 @@ pub async fn encrypt_file(
         encrypted_aes_key,
         encrypted_data,
         aes_key,
-        iv
+        iv.to_vec(),
     ))
 }

@@ -50,5 +50,4 @@ pub async fn generate_key(
         .map_err(|e| HttpError::server_error(e.to_string()))?;
 
     Ok((StatusCode::OK, "true"))
-
 }

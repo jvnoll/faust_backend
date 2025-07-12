@@ -5,6 +5,7 @@ mod error;
 mod db;
 mod utils;
 mod middleware;
+mod handler;
 
 use axum::http::{header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE}, HeaderValue, Method};
 use axum::Router;
@@ -38,7 +39,7 @@ async fn main() {
         .connect(&config.database_url)
         .await {
             Ok(pool) => {
-                println!("✅Connection to the database was successful!");
+                println!("✅ Connection to the database was successful!");
                 pool
             }
             Err(err) => {
@@ -92,4 +93,5 @@ async fn main() {
     .await.unwrap();
 
     axum::serve(listener, app).await.unwrap();
+    
 }
