@@ -138,9 +138,9 @@ impl UserExt for DBClient {
             VALUES ($1, $2, $3) 
             RETURNING id, name, email, password, public_key, created_at, updated_at
             "#,
-            name.into(),
-            email.into(),
-            password.into()
+            Some(name.into()),
+            Some(email.into()),
+            Some(password.into())
         )
         .fetch_one(&self.pool)
         .await?;
@@ -160,8 +160,8 @@ impl UserExt for DBClient {
             WHERE id = $2
             RETURNING id, name, email, password, public_key, created_at, updated_at
             "#,
-            new_name.into(),
-            user_id
+            Some(new_name.into()),
+            Some(user_id)
         )
         .fetch_one(&self.pool)
         .await?;
