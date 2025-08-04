@@ -5,12 +5,10 @@ use rsa::{Pkcs1v15Encrypt, RsaPublicKey};
 
 use crate::error::HttpError;
 
-
-
 pub async fn encrypt_file(
     file_data: Vec<u8>,
     user_public_key: &RsaPublicKey
-) -> Result<(Vec<u8>, Vec<u8>), HttpError> {
+) -> Result<(Vec<u8>, Vec<u8>, Vec<u8>), HttpError> {
 
     let mut aes_key = [0u8; 32];
     let mut iv = [0u8; 16];
@@ -33,5 +31,6 @@ pub async fn encrypt_file(
     Ok((
         encrypted_aes_key,
         encrypted_data,
+        iv.to_vec(),
     ))
 }

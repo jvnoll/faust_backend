@@ -11,13 +11,13 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 use crate::{db::UserExt, dtos::{FileUploadDtos, Response as ResponseDto, RetrieveFileDto}, error::HttpError, middleware::JWTAuthMiddleware, utils::{decrypt::decrypt_file, encrypt::encrypt_file, password}, AppState};
 
 //Upload
-pub async fn upload_file(
+pub async fn upload_file (
     Extension(app_state): Extension<Arc<AppState>>,
     Extension(user): Extension<JWTAuthMiddleware>,
     mut multipart: Multipart
 ) -> Result<impl IntoResponse, HttpError> {
 
-    let mut file_dataa = Vec::new();
+    let mut file_data = Vec::new();
     let mut file_name = String::new();
     let mut file_size: i64 = 0;
     let mut form_data = FileUploadDtos {
@@ -36,7 +36,7 @@ pub async fn upload_file(
                 file_size = file_data.len() as i64;
             },
             "recipient_email" => {
-                .form_data.recipient_email = field.text().await.unwrap();
+                form_data.recipient_email = field.text().await.unwrap();
             },
             "password" => {
                 form_data.password = field.text().await.unwrap();
@@ -54,7 +54,7 @@ pub async fn upload_file(
     let recipient_result = app_state.db_client
         .get_user(None, None, Some(&form_data.recipient_email))
         .await
-        .map_err(|e| HttpError::server_error(e.to_string))?;
+        .map_err(|e| HttpError::server_error(e.to_string()))?;
 
     let recipient_user = recipient_result.ok_or(HttpError::bad_request("Recipient user not found"))?;
 
@@ -63,6 +63,89 @@ pub async fn upload_file(
         None => return Err(HttpError::bad_request("User has no public key")),
     };
 
-    //let public_key_bytes//
+    let public_key_bytes = STANDARD.decode(public_key_str)
+        .map_err(|e| HttpError::server_error(e.to_string()))?;
+
+    let public_key = String::from_utf8(public_key_bytes)
+        .map_err(|e| HttpError::server_error(e.to_string()))?;
+
+    let public_key_pem = RsaPublicKey::from_pkcs1_pem(&public_key)
+        .map_err(|e| HttpError::server_error(e.to_string()))?;
+
+    let (
+        encrypted_aes_key,
+        encrypted_data,
+        iv
+    ) = encrypt_file(file_data, &public_key_pem).await?;
+
+    let user_id = uuid::Uuid::parse_str(&user.user.id.to_string()).unwrap();
+
+    let hash_password = password::hash(&form_data.password)
+        .map_err(|e| HttpError::server_error(e.to_string()))?;
+
+    let expiration_date = DateTime::parse_from_rfc3339(&form_data.expiration_date)
+        .map_err(|e| HttpError::server_error(e.to_string()))?
+        .with_timezone(&Utc);
+
+    let recipient_user_id = uuid::Uuid::parse_str(&recipient_user.id.to_string()).unwrap();
+
+    app_state.db_client
+        .save_encrypted_file(
+            user_id.clone(),
+            file_name, 
+            file_size, 
+            recipient_user_id, 
+            hash_password, 
+            expiration_date, 
+            encrypted_aes_key, 
+            encrypted_data, 
+            iv
+        )
+        .await
+        .map_err(|e| HttpError::server_error(e.to_string()))?;
+
+    let response = ResponseDto {
+        message: "File uploaded and encrypted successfully".to_string(),
+        status: "success"
+    };
+
+    Ok(Json(response))
+
+}
+
+pub async fn retrieve_file (
+    Extension(app_state): Extension<Arc<AppState>>,
+    Extension(user): Extension<JWTAuthMiddleware>,
+    Json(body): Json<RetrieveFileDto>,
+) -> Result<impl IntoResponse, HttpError> {
+    body.validate()
+        .map_err(|e| HttpError::bad_request(e.to_string()))?;
+
+    let user_id = uuid::Uuid::parse_str(&user.user.id.to_string()).unwrap();
+    let shared_id = uuid::Uuid::parse_str(&body.shared_id.to_string()).unwrap();
+
+    let shared_result = app_state.db_client
+        .get_shared(shared_id.clone(), user_id.clone())
+        .await
+        .map_err(|e| HttpError::server_error(e.to_string()))?;
+
+    let shared_data = shared_result.ok_or_else(|| {
+        HttpError::bad_request("The requested shared link either does not exist or has expired".to_string())
+    })?;
+
+    let match_password = password::compare(&body.password, &shared_data.password)
+        .map_err(|e| HttpError::server_error(e.to_string()))?;
+
+    if !match_password {
+        return Err(HttpError::bad_request("Incorrect password".to_string()))?;
+    }
+
+    let file_id = match shared_data.file_id {
+        Some(id) => id,
+        None => {
+            // Case handler for null file_id
+            return Err(HttpError::bad_request("File ID is missing".to_string()));
+        }
+    };
 
 }
