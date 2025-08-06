@@ -10,6 +10,13 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 
 use crate::{db::UserExt, dtos::{FileUploadDtos, Response as ResponseDto, RetrieveFileDto}, error::HttpError, middleware::JWTAuthMiddleware, utils::{decrypt::decrypt_file, encrypt::encrypt_file, password}, AppState};
 
+
+pub fn file_handler() -> Router {
+    Router::new()
+    .route("/upload", post(upload_file))
+    .route("/retrieve", post(retrieve_file))
+}
+
 //Upload
 pub async fn upload_file (
     Extension(app_state): Extension<Arc<AppState>>,
@@ -113,6 +120,7 @@ pub async fn upload_file (
 
 }
 
+//Download
 pub async fn retrieve_file (
     Extension(app_state): Extension<Arc<AppState>>,
     Extension(user): Extension<JWTAuthMiddleware>,
@@ -143,9 +151,43 @@ pub async fn retrieve_file (
     let file_id = match shared_data.file_id {
         Some(id) => id,
         None => {
-            // Case handler for null file_id
+            // Case handler for None file_id
             return Err(HttpError::bad_request("File ID is missing".to_string()));
         }
     };
+
+    let file_result = app_state.db_client
+        .get_file(file_id.clone())
+        .await
+        .map_err(|e| HttpError::server_error(e.to_string()))?;
+
+    let file_data = file_result.ok_or_else(|| {
+        HttpError::bad_request("The requested file has expired or does not exist".to_string())
+    })?;
+
+    let mut path = PathBuf::from("assets/private_keys");
+    path.push(format!("{}.pem", user_id.clone()));
+
+    let private_key = fs::read_to_string(&path)
+        .map_err(|e| HttpError::server_error(e.to_string()))?;
+
+    let private_key_pem = RsaPrivateKey::from_pkcs1_pem(&private_key)
+        .map_err(|e| HttpError::server_error(e.to_string()))?;
+
+    let decrypted_file = decrypt_file(
+        file_data.encrypted_aes_key, 
+        file_data.encrypted_file, 
+        file_data.iv, 
+        &private_key_pem
+    ).await?;
+
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .header("Content-Disposition", format!("attachment; filename=\"{}\"", file_data.file_name))
+        .header("Content-Type", "application/octet-stream")
+        .body(Body::from(decrypted_file))
+        .map_err(|e| HttpError::server_error(e.to_string()))?;
+
+    Ok(response)
 
 }

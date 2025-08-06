@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use axum::{extract::Query, response::IntoResponse, routing::{get, Route}, Extension, Json, Router};
+use axum::{extract::Query, response::IntoResponse, routing::get, Extension, Json, Router};
 use validator::Validate;
 
 use crate::{db::UserExt, dtos::{RequestQueryDto, UserReceiveFileDto, UserReceiveFileListResponseDto, UserSendFileDto, UserSendFileListResponseDto}, error::HttpError, middleware::JWTAuthMiddleware, AppState};
